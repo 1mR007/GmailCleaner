@@ -15,64 +15,29 @@ def gmail_connect():
     except Exception as e:
         print(f"Error while logging to Gmail: {e}")
     
-def decode_email_body(msg):
+def get_sender(mail_id, mail):
+    """
+    Get the sender email address from an email.
+    """
     try:
-        body = ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == "text/plain":
-                    try:
-                        payload = part.get_payload(decode=True)
-                        if payload is None:
-                            continue
-                            
-                        charset = part.get_content_charset()
-                        if charset:
-                            body += payload.decode(charset, errors="replace") # Concatenate each part of the multipart msg
-                        else:
-                            # Try common encodings
-                            for encoding in ['utf-8', 'latin-1', 'ascii']:
-                                try:
-                                    body += payload.decode(encoding, errors="replace") # Concatenate each part of the multipart msg
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                                    
-                        # Handle quoted-printable encoding
-                        if part.get('Content-Transfer-Encoding', '').lower() == 'quoted-printable':
-                            body = quopri.decodestring(body.encode()).decode('utf-8', errors='replace')
-                            
-                    except Exception as e:
-                        print(f"Error decoding part: {e}")
-                        continue
-        else:
-            payload = msg.get_payload(decode=True)
-            if payload is not None:
-                charset = msg.get_content_charset()
-                if charset:
-                    body = payload.decode(charset, errors="replace")
-                else:
-                    # Try common encodings
-                    for encoding in ['utf-8', 'latin-1', 'ascii']:
-                        try:
-                            body = payload.decode(encoding, errors="replace")
-                            break
-                        except UnicodeDecodeError:
-                            continue
-
-        return body if body else None
+        # Fetch the email headers
+        _, msg_data = mail.fetch(mail_id, '(RFC822)')
+        msg = email.message_from_bytes(msg_data[0][1])
+        
+        # Get the sender's email address
+        sender = msg['From']
+        return sender
     except Exception as e:
-        print(f"Error while decoding email's body: {e}")
+        print(f"Error getting sender: {e}")
         return None
     
-def fetch_recent_emails(mail, email_range):
+def fetch_recent_emails(mail):
     try:
         # Get all email IDs
         _, email_ids = mail.search(None, 'ALL')
         
         if email_ids[0]:
-            for i in range(1, email_range + 1):
-                msg_id = email_ids[0].split()[-i] # Fetch email_ids in the given email_range
+            for msg_id in email_ids[0]:
                 _, email_data = mail.fetch(msg_id, '(RFC822)')
 
                 # Check the validity results of the previous fecth
