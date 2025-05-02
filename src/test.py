@@ -1,49 +1,30 @@
-import mail_handler
-import os
+import src.mail_handler as mail_handler
 
-TARGET_FOLDER = mail_handler.config.TARGET_FOLDER  # Folder to move promotional emails to
+authenticator = mail_handler.Authenticator()
+creds = authenticator.authenticate()
+if not creds:
+    print("[bold red]Failed to authenticate. Please check your credentials.[/bold red]")
+    exit(1)
 
-try:
-    creds = mail_handler.start_gmail_api()
+manager = mail_handler.EmailManager(creds)
+print("Gmail API authenticated successfully.")
 
-    if creds:
+messages = manager.get_unread_emails_ids()
 
-        messages = mail_handler.get_unread_emails(creds)
-        promos = 0
-
-        if messages:
-            for message in messages:
-                sender = mail_handler.get_sender_email(creds, message["id"])
-                subject = mail_handler.get_email_subject(creds, message["id"])
-                domain = mail_handler.get_email_domain(creds, message["id"])
-                if sender and subject and domain:
-                    is_promo = mail_handler.is_promo_email(creds, message["id"])
-                    if is_promo:
-                        print(f"Promo email detected :\n")
-                        print(f"Subject: {subject}")
-                        print(f"Sender: {sender}")
-                        print(f"Domain: {domain}")
-                        promos += 1
-                        # Move the email to the promotional folder
-                        moved = mail_handler.apply_label(creds, message["id"], TARGET_FOLDER)
-                        if moved:
-                            print(f"Email moved to {TARGET_FOLDER} folder.")
-                        else:
-                            print(f"Failed to move email to {TARGET_FOLDER} folder.")
-                    else:
-                        print(f"Non-promo email detected :\n")
-                        print(f"Subject: {subject}")
-                        print(f"Sender: {sender}")
-                        print(f"Domain: {domain}")
-                else:
-                    print("Failed to retrieve email details.")
-                    continue
-            mail_handler.utils.display_summary(len(messages), promos)
+if not messages:
+    print("[yellow]No unread emails found.[/yellow]")
+else:
+    print(f"[bold green]Found {len(messages)} unread emails.[/bold green]")
+    for message_id in messages:
+        details = manager.batch_get_email_details(message_id)
+        sender = details.get("sender", "Unknown Sender")
+        subject = details.get("subject", "No Subject")
+        domain = sender.split('@')[-1] if '@' in sender else "Unknown Domain"
+        print(f"Subject : {subject}")
+        print(f"Sender : {sender}")
+        print(f"Domain : {domain}")
+        print("-" * 40)
+        if manager.is_promo_email(message_id):
+            print(f"[bold red]This email is promotional.[/bold red]")
         else:
-            print("No unread emails found.")
-except KeyboardInterrupt:
-    print("Process interrupted by user.")
-    os._exit(0)
-except Exception as e:
-    print(f"An error occurred: {e}")
-    os._exit(1)
+            print(f"[bold green]This email is not promotional.[/bold green]")
