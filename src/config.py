@@ -1,29 +1,25 @@
 # src/config.py
 
 import os
-from dotenv import load_dotenv
 
 class Config:
     """
     Configuration class for GmailCleaner application.
     """
     def __init__(self):
-        # Path to the .env file
-        self.ENV_PATH = "./logs/.env"
+        # Définir le chemin vers le dossier logs
+        self.LOGS_DIR = "./logs"
         
-        # Load .env variables
-        load_dotenv(self.ENV_PATH)
-        
-        # Gmail configuration
-        self.EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")
-        self.APP_PASSWORD = os.getenv("APP_PASSWORD")
-        self.IMAP_SERVER = os.getenv("IMAP_SERVER")
-        self.IMAP_PORT = int(os.getenv("IMAP_PORT", 993))
+        # Créer le dossier logs s'il n'existe pas
+        os.makedirs(self.LOGS_DIR, exist_ok=True)
         
         # Application configuration
-        self.TARGET_FOLDER = os.getenv("TARGET_FOLDER", "GmailCleaner")
-        self.PROMOTIONAL_SENDERS_FILE = "./logs/promotional_senders.txt"
-        self.PROMOTIONAL_SUBJECTS_FILE = "./logs/promotional_subjects.txt"
-        self.PROMOTIONAL_DOMAINS_FILE = "./logs/promotional_domains.txt"
+        self.TARGET_FOLDER = "GmailCleaner"
+        self.PROMOTIONAL_SENDERS_FILE = os.path.join(self.LOGS_DIR, "promotional_senders.txt")
+        self.PROMOTIONAL_SUBJECTS_FILE = os.path.join(self.LOGS_DIR, "promotional_subjects.txt")
+        self.PROMOTIONAL_DOMAINS_FILE = os.path.join(self.LOGS_DIR, "promotional_domains.txt")
+
+        # Paramètres de performance
+        self.BATCH_SIZE = 100
 
 config = Config()

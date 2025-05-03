@@ -6,7 +6,6 @@ from rich.prompt import Prompt
 
 from src.console import CLIConsole
 
-
 def main():
     """Main function of the program"""
 
@@ -46,7 +45,8 @@ def main():
             if choice != "0":
                 console.console.print()
                 Prompt.ask("[bold cyan]Press [Enter] to continue[/bold cyan]")
-                os.system('cls' if os.name == 'nt' else 'clear')
+                if sys.stdout.isatty():
+                    os.system('cls' if os.name == 'nt' else 'clear')
                 console.display_header()
     
     except KeyboardInterrupt:

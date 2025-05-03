@@ -8,7 +8,8 @@ from rich.table import Table
 
 from src.config import config
 from src.utils import Utils
-from src.mail_handler import Authenticator, EmailManager, test_gmail_api
+from src.authenticator import Authenticator
+from src.manager import EmailManager
 
 
 class CLIConsole:
@@ -26,7 +27,7 @@ class CLIConsole:
         """Authenticate the user and initialize the email manager"""
         self.creds = self.authenticator.authenticate()
         if not self.creds:
-            self.console.print("[bold red]Failed to authenticate. Please check your credentials.[/bold red]")
+            self.console.print("[bold red]Failed to authenticate.\nPlease check your credentials and/or your Internet connection.[/bold red]")
             exit(1)
         self.manager = EmailManager(self.creds)
         return self.creds
@@ -60,17 +61,13 @@ class CLIConsole:
         return choice
 
     def process_emails(self, dry_run=False):
-        """
-        Processes unread emails and moves promotional ones to the target folder.
-
-        Args:
-            dry_run (bool): If True, only analyze emails without moving them.
-        
-        """
+        """Version améliorée avec une seule instance Progress pour toutes les barres"""
         self.console.print(f"\n[bold]{'Analyzing' if dry_run else 'Processing'} unread emails...[/bold]")
+        
         try:
+            # Récupération des IDs des emails
             with self.console.status("[bold green]Retrieving unread emails...[/bold green]", spinner="dots"):
-                messages = self.manager.get_unread_emails_ids()
+                messages = self.manager.get_emails_ids()
 
             if not messages:
                 self.console.print("[yellow]No unread emails found.[/yellow]")
@@ -78,25 +75,49 @@ class CLIConsole:
 
             self.console.print(f"[green]✓[/green] {len(messages)} unread emails found.")
             processed_count, promo_count = 0, 0
+            
+            # Chargement des règles
+            rules = [
+                Utils.read_file(config.PROMOTIONAL_SENDERS_FILE),
+                Utils.read_file(config.PROMOTIONAL_SUBJECTS_FILE),
+                Utils.read_file(config.PROMOTIONAL_DOMAINS_FILE)
+            ]
 
+            promo_message_ids = []
+            message_ids = [{"id": m["id"]} for m in messages]
+            
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[bold blue]{task.description}[/bold blue]"),
                 BarColumn(bar_width=40),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 TextColumn("({task.completed}/{task.total})"),
-                TimeRemainingColumn(),
             ) as progress:
-                task = progress.add_task(f"[green]{'Analyzing' if dry_run else 'Processing'} emails...", total=len(messages))
+                
+                
+                # Étape 1: Récupération des métadonnées
+                metadata_task = progress.add_task("[green]Récupération des métadonnées...", total=len(messages))
+                all_metadata = self.manager.batch_get_email_metadata(message_ids, progress=progress, progress_task=metadata_task)
+                progress.update(metadata_task, completed=len(messages))
+                
+                # Étape 2: Analyse des emails
+                analysis_task = progress.add_task("[green]Analyzing emails...", total=len(messages))
+                
                 for message in messages:
-                    is_promo = self.manager.is_promo_email(message["id"])
+                    message_id = message["id"]
+                    meta = all_metadata.get(message_id, {})
+                    is_promo = self.manager.is_promo_email(rules, meta)
+                    
                     if is_promo:
                         promo_count += 1
-                        if not dry_run:
-                            self.manager.apply_label(message["id"], config.TARGET_FOLDER)
+                        promo_message_ids.append(message)
+                    
                     processed_count += 1
-                    progress.update(task, advance=1)
+                    progress.update(analysis_task, advance=1)
 
+                progress.update(analysis_task, completed=len(messages))
+            
+            # Affichage des résultats
             self.console.print("\n[bold green]Results:[/bold green]")
             table = Table(show_header=True, header_style="bold magenta")
             table.add_column("Type")
@@ -105,11 +126,26 @@ class CLIConsole:
             table.add_row("Promotional emails", str(promo_count), f"[{'yellow' if dry_run else 'green'}]{'To move' if dry_run else 'Moved'}[/{'yellow' if dry_run else 'green'}]")
             table.add_row("Normal emails", str(processed_count - promo_count), "[blue]Kept[/blue]")
             self.console.print(table)
-
+            
             if dry_run and promo_count > 0:
-                if Confirm.ask("\n[bold cyan]Do you want to move these promotional emails now?[/bold cyan]"):
-                    self.process_emails(dry_run=False)
-
+                move_now = Confirm.ask("\n[bold cyan]Do you want to move these promotional emails now?[/bold cyan]")
+                if move_now:
+                    
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[bold blue]{task.description}[/bold blue]"),
+                        BarColumn(bar_width=40),
+                        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+                    ) as move_progress:
+                        move_task = move_progress.add_task("[green]Moving emails...", total=len(promo_message_ids))
+                        success = self.manager.batch_apply_label(promo_message_ids, config.TARGET_FOLDER, progress=move_progress, progress_task=move_task)
+                        move_progress.update(move_task, completed=len(promo_message_ids))
+                    
+                    if success:
+                        self.console.print("[bold green]✓ Promotional emails have been moved successfully.[/bold green]")
+                    else:
+                        self.console.print("[bold red]✕ Some emails could not be moved. Check the logs for details.[/bold red]")
+        
         except Exception as e:
             self.console.print(f"[bold red]Error while processing emails: {e}[/bold red]")
 
@@ -191,7 +227,7 @@ class CLIConsole:
             self.console.print("[bold red]No valid credentials. Please authenticate.[/bold red]")
             return
         with self.console.status("[bold green]Testing Gmail API connection...[/bold green]", spinner="dots"):
-            success = test_gmail_api(self.creds)
+            success = self.authenticator.test_gmail_api(self.manager.service)
             if success:
                 self.console.print("[bold green]✓ Connection to Gmail API successful.[/bold green]")
             else:
